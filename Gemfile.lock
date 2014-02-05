@@ -1,4 +1,5 @@
 GEM
+  remote: https://rubygems.org/
   specs:
     net-sftp (2.1.2)
       net-ssh (>= 2.6.5)
