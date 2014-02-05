@@ -6,10 +6,11 @@ require 'set'
 
 opts = Trollop::options do
   opt :test, "Fetch from test server"
+  opt :dir, "Directory to store XML files in", :type => :string, :default => 'C:/XML'
 end
 
 hostname = 'ftpbif.sochi2014.com'
-hostname = 'e2e-bif.sochi2014.com' if opts[:test]
+hostname = 'e2e-ftpbif.sochi2014.com' if opts[:test]
 username = 'ODF.VW'
 password = '#2B!wjsv'
 
@@ -24,13 +25,11 @@ wanted_files = {}
 disciplines = Set.new
 found_files = Hash.new { |h, k| h[k]= [] }
 
-target_dir = ARGV[1] || 'C:/XML'
-
 def sorted_filenames(sftp_entries)
   sftp_entries.map(&:name).reject { |e| e[0] == '.' }.sort.reverse
 end
 
-puts "Will save the latest #{wanted_types * ', '} for all disciplines to #{target_dir}"
+puts "Will save the latest #{wanted_types * ', '} for all disciplines to #{opts.dir}"
 puts "Connecting to sftp://#{username}@#{hostname}/ ..."
 
 Net::SFTP.start(hostname, username, password: password) do |sftp|
@@ -47,7 +46,7 @@ Net::SFTP.start(hostname, username, password: password) do |sftp|
       wanted_files[discipline].each do |type|
         next unless path.match("_#{type}__")
         found_files[discipline].push type
-        target = File.join(target_dir, File.basename(path))
+        target = File.join(opts.dir, File.basename(path))
         progress = "#{found_files[discipline].count}/#{wanted_types.count}"
         timestamp = DateTime.parse /___(\d{14})\d{6}\.xml$/.match(path)[1]
         puts "    [#{discipline} #{progress}] Found #{type} \t(#{timestamp.strftime('%c')})"
