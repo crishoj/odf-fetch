@@ -1,9 +1,15 @@
 require 'net/sftp'
+require 'trollop'
 require 'date'
 require 'set'
 
+
+opts = Trollop::options do
+  opt :test, "Fetch from test server"
+end
+
 hostname = 'ftpbif.sochi2014.com'
-#hostname = 'e2e-bif.sochi2014.com'
+hostname = 'e2e-bif.sochi2014.com' if opts[:test]
 username = 'ODF.VW'
 password = '#2B!wjsv'
 
