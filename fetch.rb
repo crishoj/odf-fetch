@@ -16,7 +16,7 @@ wanted_files = {}
 disciplines = Set.new
 found_files = Hash.new { |h, k| h[k]= [] }
 
-target_dir = ARGV[1] || '/tmp'
+target_dir = ARGV[1] || 'C:/tmp'
 
 def sorted_filenames(sftp_entries)
   sftp_entries.map(&:name).reject { |e| e[0] == '.' }.sort.reverse
