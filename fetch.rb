@@ -1,5 +1,6 @@
-require('net/sftp')
-require('set')
+require 'net/sftp'
+require 'date'
+require 'set'
 
 hostname = 'ftpbif.sochi2014.com'
 #hostname = 'e2e-bif.sochi2014.com'
@@ -12,6 +13,7 @@ DT_MEDALS
 DT_PARTIC
 DT_PARTIC_UPDATE
 }
+
 wanted_files = {}
 disciplines = Set.new
 found_files = Hash.new { |h, k| h[k]= [] }
