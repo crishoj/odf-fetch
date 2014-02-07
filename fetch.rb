@@ -11,7 +11,7 @@ opts = Trollop::options do
   opt :username,   "Username for the ODF SFTP server", :type => :string, :default => 'ODF.VW'
   opt :password,   "Password for the ODF SFTP server", :type => :string, :default => '#2B!wjsv'
   opt :hostname,   "Address of the ODF SFTP server",   :type => :string, :default => 'ftpbif.sochi2014.com'
-  opt :path,       "Path on the server",               :type => :string, :default => '/'
+  opt :path,       "Path on the server",               :type => :string, :default => ''
   opt :discipline, "Limit to a certain discipline",    :type => :string
 end
 
@@ -42,7 +42,7 @@ end
 Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do |sftp|
   pattern = '*/*DT_*'
   date_folders = sorted_filenames(sftp.dir.entries opts[:path]).select { |entry|
-    entry =~ /^\d{8}$/ }.collect { |date| "#{opts[:path]}/#{date}" }
+    entry =~ /^\d{4}-\d{2}-\d{2}$/ }.collect { |date| "#{opts[:path]}/#{date}" }
   date_folders.reverse.each do |date_dir|
     puts "  Checking #{date_dir} for #{pattern}..."
     sorted_filenames(sftp.dir.glob date_dir, pattern).reverse.each do |path|
@@ -79,7 +79,7 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
       base_xml = Nokogiri::XML.parse(File.read basefile)
       pattern = "*/*#{discipline}*__DT_PARTIC_UPDATE__*"
       date_folders.each do |date_dir|
-        next if File.basename(date_dir) < base_timestamp[0...8]
+        next if Date.parse(File.basename(date_dir)) < Date.parse(base_timestamp)
         sorted_filenames(sftp.dir.glob date_dir, pattern).each do |path|
           update_timestamp = File.basename(path)[-24...-10]
           next if update_timestamp < base_timestamp
