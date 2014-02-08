@@ -104,6 +104,7 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
       puts "[SERVER ERROR] While checking #{date_dir}: #{e}"
     end
   end
+
   unless opts[:skip_update]
     if updatable.empty?
       puts "No DT_PARTIC files to update"
@@ -175,55 +176,23 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
     puts "  Writing consolidated DT_MEDALLISTS_DISCIPLINE file\n      => #{target}"
     File.write(target, base_xml.to_s)
 
-    puts
-    synth = Nokogiri::XML.parse File.read(target)
-    latest_daily_datetime = daily_medallist_files.keys.max
-    if latest_daily_datetime and latest_daily_datetime.to_date == Date.today
-      puts "DT_MEDALLISTS_DAY found for today – won't synthesize"
-    else
-      puts "No DT_MEDALLISTS_DAY found for today – will synthesize from consolidated data"
-      todays_date = DateTime.now.strftime('%Y%m%d')
-      #todays_date = '20140209' # FIXME - remove
-      past_events = synth.search("//Event[@Date < #{todays_date}]")
-      puts "  Removing #{past_events.count} events that are not on today's date (#{todays_date})"
-      past_events.remove
-      gold_medals = synth.search("//Medal[@Code='ME_GOLD']")
-      puts "  Today has #{gold_medals.count} gold medal(s)"
-      if gold_medals.count < 3
-        num_missing = 3 - gold_medals.count
-        past_gold_events = base_xml.xpath("//Event[@Date < #{todays_date}][//Medal[@Code='ME_GOLD']]")
-        puts "  Will attempt to add #{num_missing} gold medals from #{past_gold_events.count} previous events with gold medals"
-        past_gold_events.sort_by { |e| event_timestamps[code_for_event(e)] }.reverse.each do |event|
-          event_gold_medals = event.xpath("Medal[@Code='ME_GOLD']")
-          event_gender = event.parent
-          event_discipline = event_gender.parent
-          puts "    Found event #{code_for_event(event)} from #{event['Date']} with #{event_gold_medals.count} gold medal(s)"
-          if synth.xpath("//Discipline[@Code='#{event_discipline['Code']}']").empty?
-            puts "      Adding discipline #{event_discipline['Code']}"
-            synth_discipline = event_discipline.clone
-            synth_discipline.children.map(&:remove)
-            synth.root.child << synth_discipline
-          end
-          if synth.xpath("//Discipline[@Code='#{event_discipline['Code']}']/Gender[@Code='#{event_gender['Code']}']").empty?
-            puts "      Adding gender #{event_discipline['Code']}/#{event_gender['Code']}"
-            synth_gender = event_discipline.clone
-            synth_gender.children.map(&:remove)
-            synth.xpath("//Discipline[@Code='#{event_discipline['Code']}']").first << synth_gender
-          end
-          puts "      Adding event #{code_for_event(event)}"
-          synth_gender = synth.xpath("//Discipline[@Code='#{event_discipline['Code']}']/Gender[@Code='#{event_gender['Code']}']")
-          synth_gender.first << event
-          num_missing -= event_gold_medals.count
-          break if num_missing <= 0
-        end
-      end
-      gold_medals = synth.search("//Medal[@Code='ME_GOLD']")
-
-      # Name synthesized file with current time
-      target = File.join(opts[:target], "#{todays_date}GL0000000__________DT_MEDALLISTS_DAY_____________#{todays_date}____SYNTH___00004P___#{todays_date}#{Time.now.strftime('%H%M%S')}000000.xml")
-      puts "  Saving synthesized file with #{gold_medals.count} gold medal(s)\n    => #{target}"
-      File.write(target, synth.to_s)
+    puts "Creating list of 3 latest medallists"
+    tpl = '<?xml version="1.0" encoding="utf-8"?><OdfBody><Competition Code="OWG2014"></Competition></OdfBody>'
+    latest_xml = Nokogiri::XML.parse(tpl)
+    base_xml.search('Event').sort_by { |e| event_timestamps[code_for_event(e)] }.reverse[0...3].each do |e|
+      code = code_for_event e
+      gender = e.parent.clone
+      discipline = e.parent.parent.clone
+      discipline.children.map(&:remove)
+      gender.children.map(&:remove)
+      puts "  Adding #{code} (#{event_timestamps[code]})"
+      gender << e
+      discipline << gender
+      latest_xml.root.child << discipline
     end
+    target = File.join(opts[:target], 'LATEST3.xml')
+    puts "  Writing to \n    => #{target}"
+    File.write(target, latest_xml.to_s)
   end
 
 end
