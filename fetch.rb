@@ -20,7 +20,6 @@ opts[:hostname] = 'e2e-ftpbif.sochi2014.com' if opts[:test]
 
 wanted_types = %w{
 DT_PARTIC
-DT_MEDALLISTS_DAY
 DT_MEDALLISTS_DISCIPLINE
 }
 
@@ -76,6 +75,8 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
             puts "    [#{discipline}] Noting time for event #{event_code} (#{timestamp})"
             event_timestamps[event_code] = timestamp
           end
+        elsif path.match('__DT_MEDALLISTS_DAY__')
+          puts "    Saving DT_MEDALLISTS_DAY (#{timestamp})"
         elsif path.match('__DT_MEDALS__')
           target = File.join(opts.target, 'DT_MEDALS.xml')
           puts "    Saving DT_MEDALS (#{timestamp}) as #{target}"
