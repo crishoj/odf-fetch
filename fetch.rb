@@ -170,7 +170,7 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
         num_missing = 3 - gold_medals.count
         past_gold_events = base_xml.xpath("//Event[@Date < #{todays_date}][//Medal[@Code='ME_GOLD']]")
         puts "  Will attempt to add #{num_missing} gold medals from #{past_gold_events.count} previous events with gold medals"
-        past_gold_events.sort_by { |e| e['Date'] }.each do |event|
+        past_gold_events.sort_by { |e| e['Date'] }.reverse.each do |event|
           event_gold_medals = event.xpath("Medal[@Code='ME_GOLD']")
           event_gender = event.parent
           event_discipline = event_gender.parent
