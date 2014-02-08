@@ -31,6 +31,7 @@ wanted_files = {}
 disciplines = Set.new
 found_files = Hash.new { |h, k| h[k]= [] }
 updatable = {}
+daily_medallist_files = {}
 consolidatable = {}
 
 def sorted_filenames(sftp_entries)
@@ -69,6 +70,8 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
             if type == 'DT_MEDALS'
               target = File.join(opts.target, 'DT_MEDALS.xml')
               puts "    Saving DT_MEDALS (#{timestamp}) as #{target}"
+            elsif type == 'DT_MEDALLISTS_DAY'
+              daily_medallist_files[timestamp] = target
             end
             sftp.download! "#{date_dir}/#{path}", target
             wanted_files[discipline].delete type
@@ -103,18 +106,22 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
             sftp.download! "#{date_dir}/#{path}", target
             update_xml = Nokogiri::XML.parse(File.read target)
             stats = update_xml.xpath('//Participant').reduce(Hash.new(0)) do |stats, updated_participant|
-              participant_code = updated_participant.attributes['Code'].value
-              existing = base_xml.xpath("//Participant[@Code=#{participant_code}]")
-              if existing.any?
-                existing.each { |e| e.replace(updated_participant) }
-                stats[:updated] += 1
+              participant_code = updated_participant['Code'].value
+              if participant_code.nil? or participant_code.empty?
+                stats[:blank] += 1
               else
-                base_xml.root.child << updated_participant
-                stats[:added] += 1
+                existing = base_xml.xpath("//Participant[@Code=#{participant_code}]")
+                if existing.any?
+                  existing.each { |e| e.replace(updated_participant) }
+                  stats[:updated] += 1
+                else
+                  base_xml.root.child << updated_participant
+                  stats[:added] += 1
+                end
               end
               stats
             end
-            puts "    [#{discipline}] Update #{update_timestamp}: #{stats[:added]} new participants, #{stats[:updated]} updated"
+            puts "    [#{discipline}] Update #{update_timestamp}: #{stats[:added]} new participants, #{stats[:updated]} updated, #{stats[:blank]} without code"
             File.unlink(target)
           end
         end
@@ -144,6 +151,59 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
     end
     puts "  Writing consolidated DT_MEDALLISTS_DISCIPLINE file\n      => #{target}"
     File.write(target, base_xml.to_s)
+
+    puts
+    synth = Nokogiri::XML.parse File.read(target)
+    latest_daily_datetime = daily_medallist_files.keys.max
+    if latest_daily_datetime.to_date == Date.today
+      puts "DT_MEDALLISTS_DAY found for today – won't synthesize"
+    else
+      puts "No DT_MEDALLISTS_DAY found for today – will synthesize from consolidated data"
+      todays_date = DateTime.now.strftime('%Y%m%d')
+      todays_date = '20140209' # FIXME - remove
+      past_events = synth.search("//Event[@Date < #{todays_date}]")
+      puts "  Removing #{past_events.count} events that are not on today's date (#{todays_date})"
+      past_events.remove
+      gold_medals = synth.search("//Medal[@Code='ME_GOLD']")
+      puts "  Today has #{gold_medals.count} gold medal(s)"
+      if gold_medals.count < 3
+        num_missing = 3 - gold_medals.count
+        past_gold_events = base_xml.xpath("//Event[@Date < #{todays_date}][//Medal[@Code='ME_GOLD']]")
+        puts "  Will attempt to add #{num_missing} gold medals from #{past_gold_events.count} previous events with gold medals"
+        past_gold_events.sort_by { |e| e['Date'] }.each do |event|
+          event_gold_medals = event.xpath("Medal[@Code='ME_GOLD']")
+          event_gender = event.parent
+          event_discipline = event_gender.parent
+          event_summary = "#{event_discipline['Code']}/#{event_gender['Code']}/#{event['Code']}"
+          puts "    Found event #{event_summary} from #{event['Date']} with #{event_gold_medals.count} gold medal(s)"
+          if synth.xpath("//Discipline[@Code='#{event_discipline['Code']}']").empty?
+            puts "      Adding discipline #{event_discipline['Code']}"
+            synth_discipline = event_discipline.clone
+            synth_discipline.children.map(&:remove)
+            synth.root.child << synth_discipline
+          end
+          if synth.xpath("//Discipline[@Code='#{event_discipline['Code']}']/Gender[@Code='#{event_gender['Code']}']").empty?
+            puts "      Adding gender #{event_discipline['Code']}/#{event_gender['Code']}"
+            synth_gender = event_discipline.clone
+            synth_gender.children.map(&:remove)
+            synth.xpath("//Discipline[@Code='#{event_discipline['Code']}']").first << synth_gender
+          end
+          puts "      Adding event #{event_summary}"
+          synth_gender = synth.xpath("//Discipline[@Code='#{event_discipline['Code']}']/Gender[@Code='#{event_gender['Code']}']")
+          synth_gender.first << event
+          num_missing -= event_gold_medals.count
+          break if num_missing <= 0
+        end
+      end
+      gold_medals = synth.search("//Medal[@Code='ME_GOLD']")
+
+      # Name synthesized file with current time
+      target = daily_medallist_files[latest_daily_datetime].clone
+      target.gsub! latest_daily_datetime.strftime('%Y%m%d'), todays_date
+      target[-18, 6] = Time.now.strftime('%H%M%S')
+      puts "  Saving synthesized file with #{gold_medals.count} gold medal(s)\n    => #{target}"
+      File.write(target, synth.to_s)
+    end
   end
 
 end
