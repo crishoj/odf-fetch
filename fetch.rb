@@ -158,6 +158,7 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
     consolidatable.delete(base_discipline)
     base_xml = Nokogiri::XML.parse(File.read basefile)
     target = File.join File.dirname(basefile), File.basename(basefile).sub(base_discipline, 'GL')
+    target[-41, 5] = 'SYNTH'
     consolidatable.keys.each do |discipline|
       timestamp = timestamp_from_path(consolidatable[discipline])
       puts "  Consolidating [#{discipline}] (#{timestamp})"
@@ -215,7 +216,7 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
       gold_medals = synth.search("//Medal[@Code='ME_GOLD']")
 
       # Name synthesized file with current time
-      target = File.join(opts[:target], "#{todays_date}GL0000000__________DT_MEDALLISTS_DAY____SYNTH____#{todays_date}____________00004P___#{todays_date}#{Time.now.strftime('%H%M%S')}000000.xml")
+      target = File.join(opts[:target], "#{todays_date}GL0000000__________DT_MEDALLISTS_DAY_____________#{todays_date}____SYNTH___00004P___#{todays_date}#{Time.now.strftime('%H%M%S')}000000.xml")
       puts "  Saving synthesized file with #{gold_medals.count} gold medal(s)\n    => #{target}"
       File.write(target, synth.to_s)
     end
