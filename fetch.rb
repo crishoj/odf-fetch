@@ -20,7 +20,6 @@ opts[:hostname] = 'e2e-ftpbif.sochi2014.com' if opts[:test]
 
 wanted_types = %w{
 DT_PARTIC
-DT_MEDALS
 DT_MEDALLISTS_DAY
 DT_MEDALLISTS_DISCIPLINE
 }
@@ -77,23 +76,21 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
             puts "    [#{discipline}] Noting time for event #{event_code} (#{timestamp})"
             event_timestamps[event_code] = timestamp
           end
+        elsif path.match('__DT_MEDALS__')
+          target = File.join(opts.target, 'DT_MEDALS.xml')
+          puts "    Saving DT_MEDALS (#{timestamp}) as #{target}"
         elsif wanted_files[discipline]
           wanted_files[discipline].each do |type|
             next unless path.match("__#{type}__")
             found_files[discipline].push type
             progress = "#{found_files[discipline].count}/#{wanted_types.count}"
             puts "    [#{discipline} #{progress}] Found #{type} \t(#{timestamp.strftime('%c')})"
-            if type == 'DT_MEDALS'
-              target = File.join(opts.target, 'DT_MEDALS.xml')
-              puts "    Saving DT_MEDALS (#{timestamp}) as #{target}"
-            elsif type == 'DT_MEDALLISTS_DAY'
-              daily_medallist_files[timestamp] = target
-            end
             sftp.download! "#{date_dir}/#{path}", target
             wanted_files[discipline].delete type
             wanted_files.delete(discipline) if wanted_files[discipline].empty?
             updatable[discipline] = target if type == 'DT_PARTIC'
             consolidatable[discipline] = target if type == 'DT_MEDALLISTS_DISCIPLINE'
+            daily_medallist_files[timestamp] = target if type == 'DT_MEDALLISTS_DAY'
           end
         end
       end
@@ -229,6 +226,17 @@ found_files.keys.each do |discipline|
   found = found_files[discipline]
   fragment = (found.count == 1) ? 'this' : ("these #{found.count}")
   puts "    [#{discipline}] #{fragment}: [#{found * ', '}]"
+end
+
+if wanted_files.empty?
+  puts "Found all files"
+else
+  puts "  Did not find:"
+  wanted_files.keys.each do |discipline|
+    missing = wanted_files[discipline]
+    fragment = (missing.count == 1) ? 'this one' : ("these #{missing.count}")
+    puts "    [#{discipline}] #{fragment}: [#{missing * ', '}]"
+  end
 end
 
 
