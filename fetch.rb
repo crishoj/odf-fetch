@@ -88,7 +88,6 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
     else
       puts "Updating the latest DT_PARTIC files with DT_PARTIC_UPDATEs for [#{updatable.keys * ', '}]"
       updatable.keys.each do |discipline|
-        target = File.join(opts.target, "CONSOLIDATED_DT_PARTIC_#{discipline}")
         basefile = updatable[discipline]
         base_timestamp = timestamp_from_path(basefile)
         puts "  Consolidating updates since #{base_timestamp} for [#{discipline}]"
@@ -133,7 +132,7 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
     base_discipline = consolidatable.key(basefile)
     consolidatable.delete(base_discipline)
     base_xml = Nokogiri::XML.parse(File.read basefile)
-    target = basefile.sub(base_discipline, 'GL')
+    target = File.join File.dirname(basefile), File.basename(basefile).sub(base_discipline, 'GL')
     consolidatable.keys.each do |discipline|
       timestamp = timestamp_from_path(consolidatable[discipline])
       puts "  Consolidating [#{discipline}] (#{timestamp})"
