@@ -134,7 +134,7 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
               end
               stats
             end
-            puts "    [#{discipline}] Update #{update_timestamp}: #{stats[:added]} new participants, #{stats[:updated]} updated, #{stats[:blank]} without code"
+            puts "    [#{discipline}] Update #{update_timestamp}: #{stats[:added]} new participants, #{stats[:updated]} updated, #{stats[:blank]} skipped"
             File.unlink(target)
           end
         end
