@@ -143,9 +143,11 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
             File.unlink(target)
           end
         end
-        basefile[-41, 5] = 'SYNTH'
-        puts "    [#{discipline}] Writing consolidated file to #{basefile}"
-        File.write(basefile, base_xml.to_s)
+        target = basefile.clone
+        target[-41, 5] = 'SYNTH'
+        puts "    [#{discipline}] Writing consolidated file to #{target}"
+        File.write(target, base_xml.to_s)
+        File.unlink(basefile)
       end
     end
   end
