@@ -21,11 +21,9 @@ opts[:hostname] = 'e2e-ftpbif.sochi2014.com' if opts[:test]
 wanted_types = %w{
 DT_PARTIC
 DT_MEDALS
-DT_MEDALLISTS
 DT_MEDALLISTS_DAY
 DT_MEDALLISTS_DISCIPLINE
 }
-
 
 wanted_files = {}
 disciplines = Set.new
@@ -33,6 +31,7 @@ found_files = Hash.new { |h, k| h[k]= [] }
 updatable = {}
 daily_medallist_files = {}
 consolidatable = {}
+event_timestamps = {}
 
 def sorted_filenames(sftp_entries)
   sftp_entries.map(&:name).reject { |e| e[0] == '.' }.sort
@@ -42,7 +41,12 @@ puts "Will save the latest #{wanted_types * ', '} for all disciplines to #{opts.
 puts "Connecting to sftp://#{opts[:username]}@#{opts[:hostname]}/ ..."
 
 def timestamp_from_path(path)
-  /___(\d{14})\d{6}\.xml$/.match(path)[1]
+  matches = /(\d{14})\d{6}\.xml$/.match(path)
+  matches[1]
+end
+
+def code_from_path(path)
+  File.basename(path)[8...14]
 end
 
 def code_for_event(event)
@@ -52,7 +56,7 @@ def code_for_event(event)
 end
 
 Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do |sftp|
-  pattern = '*/*DT_*'
+  pattern = '*/*DT_*.xml'
   date_folders = sorted_filenames(sftp.dir.entries opts[:path]).select { |entry|
     entry =~ /^\d{4}-\d{2}-\d{2}$/ }.collect { |date| "#{opts[:path]}/#{date}" }
   date_folders.reverse.each do |date_dir|
@@ -65,14 +69,20 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
           disciplines << discipline
           wanted_files[discipline] = wanted_types.clone
         end
-        if wanted_files[discipline]
+        target = File.join(opts.target, File.basename(path))
+        timestamp = DateTime.parse timestamp_from_path(path)
+        if path.match('__DT_MEDALLISTS__')
+          event_code = code_from_path(path)
+          unless event_timestamps.include? event_code
+            puts "    [#{discipline}] Noting time for event #{event_code} (#{timestamp})"
+            event_timestamps[event_code] = timestamp
+          end
+        elsif wanted_files[discipline]
           wanted_files[discipline].each do |type|
-            next unless path.match("_#{type}__")
-            timestamp = DateTime.parse timestamp_from_path(path)
+            next unless path.match("__#{type}__")
             found_files[discipline].push type
             progress = "#{found_files[discipline].count}/#{wanted_types.count}"
             puts "    [#{discipline} #{progress}] Found #{type} \t(#{timestamp.strftime('%c')})"
-            target = File.join(opts.target, File.basename(path))
             if type == 'DT_MEDALS'
               target = File.join(opts.target, 'DT_MEDALS.xml')
               puts "    Saving DT_MEDALS (#{timestamp}) as #{target}"
@@ -112,7 +122,7 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
             sftp.download! "#{date_dir}/#{path}", target
             update_xml = Nokogiri::XML.parse(File.read target)
             stats = update_xml.xpath('//Participant').reduce(Hash.new(0)) do |stats, updated_participant|
-              participant_code = updated_participant['Code'].value
+              participant_code = updated_participant['Code']
               if participant_code.nil? or participant_code.empty?
                 stats[:blank] += 1
               else
@@ -161,12 +171,12 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
     puts
     synth = Nokogiri::XML.parse File.read(target)
     latest_daily_datetime = daily_medallist_files.keys.max
-    if latest_daily_datetime.to_date == Date.today
+    if latest_daily_datetime and latest_daily_datetime.to_date == Date.today
       puts "DT_MEDALLISTS_DAY found for today – won't synthesize"
     else
       puts "No DT_MEDALLISTS_DAY found for today – will synthesize from consolidated data"
       todays_date = DateTime.now.strftime('%Y%m%d')
-      todays_date = '20140209' # FIXME - remove
+      #todays_date = '20140209' # FIXME - remove
       past_events = synth.search("//Event[@Date < #{todays_date}]")
       puts "  Removing #{past_events.count} events that are not on today's date (#{todays_date})"
       past_events.remove
@@ -176,12 +186,7 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
         num_missing = 3 - gold_medals.count
         past_gold_events = base_xml.xpath("//Event[@Date < #{todays_date}][//Medal[@Code='ME_GOLD']]")
         puts "  Will attempt to add #{num_missing} gold medals from #{past_gold_events.count} previous events with gold medals"
-        past_gold_event_timestamps = past_gold_events.inject({}) { |timestamps,e|
-          medallist_file = Dir.glob(File.join(opts[:target], "*#{code_for_event(e)}*__DT_MEDALLISTS__*.xml")).first
-          timestamps[code_for_event(e)] = medallist_file ? timestamp_from_path(medallist_file) : "#{e['Date']}120000"
-          timestamps
-        }
-        past_gold_events.sort_by { |e| past_gold_event_timestamps[code_for_event(e)] }.reverse.each do |event|
+        past_gold_events.sort_by { |e| event_timestamps[code_for_event(e)] }.reverse.each do |event|
           event_gold_medals = event.xpath("Medal[@Code='ME_GOLD']")
           event_gender = event.parent
           event_discipline = event_gender.parent
@@ -208,9 +213,7 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
       gold_medals = synth.search("//Medal[@Code='ME_GOLD']")
 
       # Name synthesized file with current time
-      target = daily_medallist_files[latest_daily_datetime].clone
-      target.gsub! latest_daily_datetime.strftime('%Y%m%d'), todays_date
-      target[-18, 6] = Time.now.strftime('%H%M%S')
+      target = File.join(opts[:target], "#{todays_date}GL0000000__________DT_MEDALLISTS_DAY____SYNTH____#{todays_date}____________00004P___#{todays_date}#{Time.now.strftime('%H%M%S')}000000.xml")
       puts "  Saving synthesized file with #{gold_medals.count} gold medal(s)\n    => #{target}"
       File.write(target, synth.to_s)
     end
@@ -228,15 +231,5 @@ found_files.keys.each do |discipline|
   puts "    [#{discipline}] #{fragment}: [#{found * ', '}]"
 end
 
-if wanted_files.empty?
-  puts "Found all files"
-else
-  puts "  Did not find:"
-  wanted_files.keys.each do |discipline|
-    missing = wanted_files[discipline]
-    fragment = (missing.count == 1) ? 'this one' : ("these #{missing.count}")
-    puts "    [#{discipline}] #{fragment}: [#{missing * ', '}]"
-  end
-end
 
 
