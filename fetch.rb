@@ -179,7 +179,7 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
     puts "Creating list of 3 latest medallists"
     tpl = '<?xml version="1.0" encoding="utf-8"?><OdfBody><Competition Code="OWG2014"></Competition></OdfBody>'
     latest_xml = Nokogiri::XML.parse(tpl)
-    base_xml.search('Event').sort_by { |e| event_timestamps[code_for_event(e)] }.reverse[0...3].each do |e|
+    base_xml.search('Event').sort_by { |e| event_timestamps[code_for_event(e)] }.reverse[0...3].reverse.each do |e|
       code = code_for_event e
       gender = e.parent.clone
       discipline = e.parent.parent.clone
