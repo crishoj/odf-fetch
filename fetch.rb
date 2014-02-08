@@ -19,6 +19,7 @@ opts[:hostname] = 'e2e-ftpbif.sochi2014.com' if opts[:test]
 
 wanted_types = %w{
 DT_MEDALLISTS_DAY
+DT_MEDALLISTS_DISCIPLINE
 DT_MEDALS
 DT_PARTIC
 }
@@ -45,25 +46,33 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
     entry =~ /^\d{4}-\d{2}-\d{2}$/ }.collect { |date| "#{opts[:path]}/#{date}" }
   date_folders.reverse.each do |date_dir|
     puts "  Checking #{date_dir} for #{pattern}..."
-    sorted_filenames(sftp.dir.glob date_dir, pattern).reverse.each do |path|
-      discipline = /^\d{8}([A-Z]{2})/.match(File.basename(path))[1]
-      next if opts[:discipline] and discipline != opts[:discipline]
-      if not disciplines.include? discipline
-        disciplines << discipline
-        wanted_files[discipline] = wanted_types.clone
+    begin
+      sorted_filenames(sftp.dir.glob date_dir, pattern).reverse.each do |path|
+        discipline = /^\d{8}([A-Z]{2})/.match(File.basename(path))[1]
+        next if opts[:discipline] and discipline != opts[:discipline]
+        if not disciplines.include? discipline
+          disciplines << discipline
+          wanted_files[discipline] = wanted_types.clone
+        end
+        wanted_files[discipline].each do |type|
+          next unless path.match("_#{type}__")
+          timestamp = DateTime.parse timestamp_from_path(path)
+          found_files[discipline].push type
+          progress = "#{found_files[discipline].count}/#{wanted_types.count}"
+          puts "    [#{discipline} #{progress}] Found #{type} \t(#{timestamp.strftime('%c')})"
+          target = File.join(opts.target, File.basename(path))
+          if type == 'DT_MEDALS'
+            target = File.join(opts.target, 'DT_MEDALS.xml')
+            puts "    Saving DT_MEDALS (#{timestamp}) as #{target}"
+          end
+          sftp.download! "#{date_dir}/#{path}", target
+          wanted_files[discipline].delete type
+          wanted_files.delete(discipline) if wanted_files[discipline].empty?
+          updatable[discipline] = target if type == 'DT_PARTIC'
+        end
       end
-      wanted_files[discipline].each do |type|
-        next unless path.match("_#{type}__")
-        found_files[discipline].push type
-        target = File.join(opts.target, File.basename(path))
-        progress = "#{found_files[discipline].count}/#{wanted_types.count}"
-        timestamp = DateTime.parse timestamp_from_path(path)
-        puts "    [#{discipline} #{progress}] Found #{type} \t(#{timestamp.strftime('%c')})"
-        sftp.download! "#{date_dir}/#{path}", target
-        wanted_files[discipline].delete type
-        wanted_files.delete(discipline) if wanted_files[discipline].empty?
-        updatable[discipline] = target if type == 'DT_PARTIC'
-      end
+    rescue Net::SFTP::Exception => e
+      puts "[SERVER ERROR] While checking #{date_dir}: #{e}"
     end
   end
   if updatable.empty?
