@@ -45,6 +45,12 @@ def timestamp_from_path(path)
   /___(\d{14})\d{6}\.xml$/.match(path)[1]
 end
 
+def code_for_event(event)
+  event_gender = event.parent
+  event_discipline = event_gender.parent
+  "#{event_discipline['Code']}#{event_gender['Code']}#{event['Code']}"
+end
+
 Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do |sftp|
   pattern = '*/*DT_*'
   date_folders = sorted_filenames(sftp.dir.entries opts[:path]).select { |entry|
@@ -170,12 +176,16 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
         num_missing = 3 - gold_medals.count
         past_gold_events = base_xml.xpath("//Event[@Date < #{todays_date}][//Medal[@Code='ME_GOLD']]")
         puts "  Will attempt to add #{num_missing} gold medals from #{past_gold_events.count} previous events with gold medals"
-        past_gold_events.sort_by { |e| e['Date'] }.reverse.each do |event|
+        past_gold_event_timestamps = past_gold_events.inject({}) { |timestamps,e|
+          medallist_file = Dir.glob(File.join(opts[:target], "*#{code_for_event(e)}*__DT_MEDALLISTS__*.xml")).first
+          timestamps[code_for_event(e)] = medallist_file ? timestamp_from_path(medallist_file) : "#{e['Date']}120000"
+          timestamps
+        }
+        past_gold_events.sort_by { |e| past_gold_event_timestamps[code_for_event(e)] }.reverse.each do |event|
           event_gold_medals = event.xpath("Medal[@Code='ME_GOLD']")
           event_gender = event.parent
           event_discipline = event_gender.parent
-          event_summary = "#{event_discipline['Code']}/#{event_gender['Code']}/#{event['Code']}"
-          puts "    Found event #{event_summary} from #{event['Date']} with #{event_gold_medals.count} gold medal(s)"
+          puts "    Found event #{code_for_event(event)} from #{event['Date']} with #{event_gold_medals.count} gold medal(s)"
           if synth.xpath("//Discipline[@Code='#{event_discipline['Code']}']").empty?
             puts "      Adding discipline #{event_discipline['Code']}"
             synth_discipline = event_discipline.clone
@@ -188,7 +198,7 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
             synth_gender.children.map(&:remove)
             synth.xpath("//Discipline[@Code='#{event_discipline['Code']}']").first << synth_gender
           end
-          puts "      Adding event #{event_summary}"
+          puts "      Adding event #{code_for_event(event)}"
           synth_gender = synth.xpath("//Discipline[@Code='#{event_discipline['Code']}']/Gender[@Code='#{event_gender['Code']}']")
           synth_gender.first << event
           num_missing -= event_gold_medals.count
