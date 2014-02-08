@@ -25,6 +25,7 @@ DT_MEDALLISTS_DISCIPLINE
 
 wanted_files = {}
 disciplines = Set.new
+found_medal_standings = false
 found_files = Hash.new { |h, k| h[k]= [] }
 updatable = {}
 daily_medallist_files = {}
@@ -78,8 +79,11 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
         elsif path.match('__DT_MEDALLISTS_DAY__')
           puts "    Saving DT_MEDALLISTS_DAY (#{timestamp})"
         elsif path.match('__DT_MEDALS__')
-          target = File.join(opts.target, 'DT_MEDALS.xml')
-          puts "    Saving DT_MEDALS (#{timestamp}) as #{target}"
+          unless found_medal_standings
+            target = File.join(opts.target, 'DT_MEDALS.xml')
+            puts "    Saving DT_MEDALS (#{timestamp}) as #{target}"
+            found_medal_standings = true
+          end
         elsif wanted_files[discipline]
           wanted_files[discipline].each do |type|
             next unless path.match("__#{type}__")
