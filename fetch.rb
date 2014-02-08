@@ -13,21 +13,25 @@ opts = Trollop::options do
   opt :hostname,   "Address of the ODF SFTP server",   :type => :string, :default => 'ftpbif.sochi2014.com'
   opt :path,       "Path on the server",               :type => :string, :default => ''
   opt :discipline, "Limit to a certain discipline",    :type => :string
+  opt :skip_update, "Skip updating DT_PARTIC files"
 end
 
 opts[:hostname] = 'e2e-ftpbif.sochi2014.com' if opts[:test]
 
 wanted_types = %w{
+DT_PARTIC
+DT_MEDALS
+DT_MEDALLISTS
 DT_MEDALLISTS_DAY
 DT_MEDALLISTS_DISCIPLINE
-DT_MEDALS
-DT_PARTIC
 }
+
 
 wanted_files = {}
 disciplines = Set.new
 found_files = Hash.new { |h, k| h[k]= [] }
 updatable = {}
+consolidatable = {}
 
 def sorted_filenames(sftp_entries)
   sftp_entries.map(&:name).reject { |e| e[0] == '.' }.sort
@@ -54,67 +58,95 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
           disciplines << discipline
           wanted_files[discipline] = wanted_types.clone
         end
-        wanted_files[discipline].each do |type|
-          next unless path.match("_#{type}__")
-          timestamp = DateTime.parse timestamp_from_path(path)
-          found_files[discipline].push type
-          progress = "#{found_files[discipline].count}/#{wanted_types.count}"
-          puts "    [#{discipline} #{progress}] Found #{type} \t(#{timestamp.strftime('%c')})"
-          target = File.join(opts.target, File.basename(path))
-          if type == 'DT_MEDALS'
-            target = File.join(opts.target, 'DT_MEDALS.xml')
-            puts "    Saving DT_MEDALS (#{timestamp}) as #{target}"
+        if wanted_files[discipline]
+          wanted_files[discipline].each do |type|
+            next unless path.match("_#{type}__")
+            timestamp = DateTime.parse timestamp_from_path(path)
+            found_files[discipline].push type
+            progress = "#{found_files[discipline].count}/#{wanted_types.count}"
+            puts "    [#{discipline} #{progress}] Found #{type} \t(#{timestamp.strftime('%c')})"
+            target = File.join(opts.target, File.basename(path))
+            if type == 'DT_MEDALS'
+              target = File.join(opts.target, 'DT_MEDALS.xml')
+              puts "    Saving DT_MEDALS (#{timestamp}) as #{target}"
+            end
+            sftp.download! "#{date_dir}/#{path}", target
+            wanted_files[discipline].delete type
+            wanted_files.delete(discipline) if wanted_files[discipline].empty?
+            updatable[discipline] = target if type == 'DT_PARTIC'
+            consolidatable[discipline] = target if type == 'DT_MEDALLISTS_DISCIPLINE'
           end
-          sftp.download! "#{date_dir}/#{path}", target
-          wanted_files[discipline].delete type
-          wanted_files.delete(discipline) if wanted_files[discipline].empty?
-          updatable[discipline] = target if type == 'DT_PARTIC'
         end
       end
     rescue Net::SFTP::Exception => e
       puts "[SERVER ERROR] While checking #{date_dir}: #{e}"
     end
   end
-  if updatable.empty?
-    puts "No files to consolidate"
-  else
-    puts "Consolidating DT_PARTIC_UPDATE files for [#{updatable.keys * ', '}]"
-    updatable.keys.each do |discipline|
-      target = File.join(opts.target, "CONSOLIDATED_DT_PARTIC_#{discipline}")
-      basefile = updatable[discipline]
-      base_timestamp = timestamp_from_path(basefile)
-      puts "  Consolidating updates since #{base_timestamp} for [#{discipline}]"
-      puts "    [#{discipline}] Parsing base file"
-      base_xml = Nokogiri::XML.parse(File.read basefile)
-      pattern = "*/*#{discipline}*__DT_PARTIC_UPDATE__*"
-      date_folders.each do |date_dir|
-        next if Date.parse(File.basename(date_dir)) < Date.parse(base_timestamp)
-        sorted_filenames(sftp.dir.glob date_dir, pattern).each do |path|
-          update_timestamp = File.basename(path)[-24...-10]
-          next if update_timestamp < base_timestamp
-          target = File.join(opts.target, File.basename(path))
-          sftp.download! "#{date_dir}/#{path}", target
-          update_xml = Nokogiri::XML.parse(File.read target)
-          stats = update_xml.xpath('//Participant').reduce(Hash.new(0)) do |stats, updated_participant|
-            participant_code = updated_participant.attributes['Code'].value
-            existing = base_xml.xpath("//Participant[@Code=#{participant_code}]")
-            if existing.any?
-              existing.each { |e| e.replace(updated_participant) }
-              stats[:updated] += 1
-            else
-              base_xml.root.child << updated_participant
-              stats[:added] += 1
+  unless opts[:skip_update]
+    if updatable.empty?
+      puts "No DT_PARTIC files to update"
+    else
+      puts "Updating the latest DT_PARTIC files with DT_PARTIC_UPDATEs for [#{updatable.keys * ', '}]"
+      updatable.keys.each do |discipline|
+        target = File.join(opts.target, "CONSOLIDATED_DT_PARTIC_#{discipline}")
+        basefile = updatable[discipline]
+        base_timestamp = timestamp_from_path(basefile)
+        puts "  Consolidating updates since #{base_timestamp} for [#{discipline}]"
+        puts "    [#{discipline}] Parsing base file"
+        base_xml = Nokogiri::XML.parse(File.read basefile)
+        pattern = "*/*#{discipline}*__DT_PARTIC_UPDATE__*"
+        date_folders.each do |date_dir|
+          next if Date.parse(File.basename(date_dir)) < Date.parse(base_timestamp)
+          sorted_filenames(sftp.dir.glob date_dir, pattern).each do |path|
+            update_timestamp = File.basename(path)[-24...-10]
+            next if update_timestamp < base_timestamp
+            target = File.join(opts.target, File.basename(path))
+            sftp.download! "#{date_dir}/#{path}", target
+            update_xml = Nokogiri::XML.parse(File.read target)
+            stats = update_xml.xpath('//Participant').reduce(Hash.new(0)) do |stats, updated_participant|
+              participant_code = updated_participant.attributes['Code'].value
+              existing = base_xml.xpath("//Participant[@Code=#{participant_code}]")
+              if existing.any?
+                existing.each { |e| e.replace(updated_participant) }
+                stats[:updated] += 1
+              else
+                base_xml.root.child << updated_participant
+                stats[:added] += 1
+              end
+              stats
             end
-            stats
+            puts "    [#{discipline}] Update #{update_timestamp}: #{stats[:added]} new participants, #{stats[:updated]} updated"
+            File.unlink(target)
           end
-          puts "    [#{discipline}] Update #{update_timestamp}: #{stats[:added]} new participants, #{stats[:updated]} updated"
         end
+        puts "    [#{discipline}] Writing consolidated file to #{basefile}"
+        File.write(basefile, base_xml.to_s)
       end
-      consolidated_filename = File.join(opts[:target], "CONSOLIDATED_PARTIC_#{discipline}.xml")
-      puts "    [#{discipline}] Writing consolidated file to #{consolidated_filename}"
-      File.write(consolidated_filename, base_xml.to_s)
     end
   end
+
+  if consolidatable.empty?
+    puts "No DT_MEDALLISTS_DISCIPLINE files to consolidate"
+  else
+    puts "Consolidating the latest DT_MEDALLISTS_DISCIPLINE files for [#{consolidatable.keys * ', '}]"
+    basefile = consolidatable.values.max
+    base_discipline = consolidatable.key(basefile)
+    consolidatable.delete(base_discipline)
+    base_xml = Nokogiri::XML.parse(File.read basefile)
+    target = basefile.sub(base_discipline, 'GL')
+    consolidatable.keys.each do |discipline|
+      timestamp = timestamp_from_path(consolidatable[discipline])
+      puts "  Consolidating [#{discipline}] (#{timestamp})"
+      puts "    [#{discipline}] Parsing standings"
+      xml = Nokogiri::XML.parse(File.read consolidatable[discipline])
+      xml.xpath('//Discipline').each do |standings|
+        base_xml.root.child << standings
+      end
+    end
+    puts "  Writing consolidated DT_MEDALLISTS_DISCIPLINE file\n      => #{target}"
+    File.write(target, base_xml.to_s)
+  end
+
 end
 
 puts "All done"
