@@ -82,6 +82,7 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
           unless found_medal_standings
             target = File.join(opts.target, 'DT_MEDALS.xml')
             puts "    Saving DT_MEDALS (#{timestamp}) as #{target}"
+            sftp.download! "#{date_dir}/#{path}", target
             found_medal_standings = true
           end
         elsif wanted_files[discipline]
