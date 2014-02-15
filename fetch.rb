@@ -164,9 +164,9 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
         end
         target = basefile.clone
         target[-41, 5] = 'SYNTH'
+        target[-24, 14] = Time.now.strftime('%Y%m%d%H%M%S')
         puts "    [#{discipline}] Writing consolidated file\n      => #{target}"
         File.write(target, base_xml.to_s)
-        File.unlink(basefile)
       end
     end
   end
@@ -197,7 +197,7 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
     tpl = '<?xml version="1.0" encoding="utf-8"?><OdfBody><Competition Code="OWG2014"></Competition></OdfBody>'
     latest_xml = Nokogiri::XML.parse(tpl)
     base_xml.xpath("//Event[Medal[@Code='ME_GOLD']]").
-        sort_by { |e| event_timestamps[code_for_event(e)] or raise "No timestamp found for event #{code_for_event(e)}" }.
+        sort_by { |e| event_timestamps[code_for_event(e)] or DateTime.parse('20140201') }.
         reverse[0...3].reverse.each do |e|
       code = code_for_event e
       gender = e.parent.clone
