@@ -53,8 +53,8 @@ end
 
 def sorted_entries(sftp_entries)
   sftp_entries.select { |e|
-    matched = File.basename(e.name).match /^\d{8}[A-Z]{2}\d+__+DT_.+\d{20}.xml$/
-    puts "    Skipping unmatched filename: #{e.name}" unless matched
+    matched = File.basename(e.name).match /^\d{8}[A-Z]+\d+__+DT_.+\d{20}.xml$/
+    puts "    Skipping unmatched filename: #{File.basename(e.name)}" unless matched
     matched
   }.sort_by { |e|
     timestamp_from_path e.name
