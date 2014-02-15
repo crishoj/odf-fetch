@@ -75,7 +75,7 @@ def fetch(sftp, dir, entry, target, message = nil)
 end
 
 Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do |sftp|
-  pattern = '*/*DT_*.xml'
+  pattern = '*/*_DT_*.xml'
   date_folders = sftp.dir.entries(opts[:path]).map(&:name).
       select { |entry| entry =~ /^\d{4}-\d{2}-\d{2}$/ }.
       collect { |date| "#{opts[:path]}/#{date}" }
