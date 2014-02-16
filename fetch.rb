@@ -95,7 +95,7 @@ Net::SFTP.start($opts[:hostname], $opts[:username], password: $opts[:password]) 
         if entry.name.match('__DT_MEDALLISTS__')
           event_code = code_from_path(entry.name)
           unless event_timestamps.include? event_code
-            puts "    [#{discipline}] Noting time for event #{event_code} (#{timestamp})"
+            puts "    [#{discipline}] Noting time for event #{event_code} (#{timestamp.strftime('%c')})"
             event_timestamps[event_code] = timestamp
           end
         elsif entry.name.match('__DT_MEDALS__')
@@ -206,7 +206,7 @@ Net::SFTP.start($opts[:hostname], $opts[:username], password: $opts[:password]) 
       discipline = e.parent.parent.clone
       discipline.children.map(&:remove)
       gender.children.map(&:remove)
-      puts "  Adding #{code} (#{event_timestamps[code]})"
+      puts "  Adding #{code} (#{event_timestamps[code].strftime('%c')})"
       gender << e
       discipline << gender
       latest_xml.root.child << discipline
