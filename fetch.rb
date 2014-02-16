@@ -1,4 +1,5 @@
 require 'trollop'
+require 'fileutils'
 require 'net/sftp'
 require 'nokogiri'
 require 'date'
@@ -60,17 +61,20 @@ def sorted_entries(sftp_entries)
   }
 end
 
-def fetch(sftp, dir, entry, target, message = nil)
-  if File.exist? target
-    if File.size?(target) == entry.attributes.size
-      if File.ctime(target) > Time.at(entry.attributes.mtime)
-        puts "#{message} [cached]" if message
-        return
-      end
-    end
+def fetch(sftp, dir, entry, target = nil, message = nil)
+  cache_path = File.join(File.dirname(target), 'cache')
+  FileUtils.mkdir_p cache_path
+  cached_file = File.join(cache_path, entry)
+  if File.exist? cached_file
+    and File.size?(cached_file) == entry.attributes.size
+    and File.ctime(cached_file) > Time.at(entry.attributes.mtime)
+    puts "#{message} [cached]" if message
+  else
+    puts "#{message} [#{entry.attributes.size/1024}K download]" if message
+    sftp.download! "#{dir}/#{entry.name}", cached_file
   end
-  puts "#{message} [#{entry.attributes.size/1024}K download]" if message
-  sftp.download! "#{dir}/#{entry.name}", target
+  FileUtils.copy cached_file, target if target
+  cached_file
 end
 
 Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do |sftp|
@@ -89,7 +93,6 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
           disciplines << discipline
           wanted_files[discipline] = wanted_types.clone
         end
-        target = File.join(opts.target, File.basename(entry.name))
         timestamp = DateTime.parse timestamp_from_path(entry.name)
         if entry.name.match('__DT_MEDALLISTS__')
           event_code = code_from_path(entry.name)
@@ -108,11 +111,11 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
             next unless entry.name.match("__#{type}__")
             found_files[discipline].push type
             progress = "#{found_files[discipline].count}/#{wanted_types.count}"
-            fetch sftp, date_dir, entry, target, "    [#{discipline} #{progress}] Found #{type} \t(#{timestamp.strftime('%c')})"
+            fetched = fetch sftp, date_dir, entry, nil, "    [#{discipline} #{progress}] Found #{type} \t(#{timestamp.strftime('%c')})"
             wanted_files[discipline].delete type
             wanted_files.delete(discipline) if wanted_files[discipline].empty?
-            updatable[discipline] = target if type == 'DT_PARTIC'
-            consolidatable[discipline] = target if type == 'DT_MEDALLISTS_DISCIPLINE'
+            updatable[discipline] = fetched if type == 'DT_PARTIC'
+            consolidatable[discipline] = fetched if type == 'DT_MEDALLISTS_DISCIPLINE'
           end
         end
       end
@@ -125,6 +128,10 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
     if updatable.empty?
       puts "No DT_PARTIC files to update"
     else
+      Dir.glob(File.join(opts[:target], '*__DT_PARTIC__*.xml')).each do |f|
+        puts "Removing old consolidated file: #{f}"
+        File.unlink f
+      end
       puts "Updating the latest DT_PARTIC files with DT_PARTIC_UPDATEs for [#{updatable.keys * ', '}]"
       updatable.keys.each do |discipline|
         basefile = updatable[discipline]
@@ -138,9 +145,8 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
           sorted_entries(sftp.dir.glob date_dir, pattern).each do |entry|
             update_timestamp = File.basename(entry.name)[-24...-10]
             next if update_timestamp < base_timestamp
-            target = File.join(opts.target, File.basename(entry.name))
-            fetch sftp, date_dir, entry, target
-            update_xml = Nokogiri::XML.parse(File.read target)
+            update_path = fetch sftp, date_dir, entry
+            update_xml = Nokogiri::XML.parse(File.read update_path)
             stats = update_xml.xpath('//Participant').reduce(Hash.new(0)) do |stats, updated_participant|
               participant_code = updated_participant['Code']
               if participant_code.nil? or participant_code.empty?
@@ -160,7 +166,7 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
             puts "    [#{discipline}] Update #{update_timestamp}: #{stats[:added]} new participants, #{stats[:updated]} updated, #{stats[:blank]} skipped"
           end
         end
-        target = basefile.clone
+        target = File.join(opts[:target], File.basename(basefile))
         target[-41, 5] = 'SYNTH'
         target[-24, 14] = Time.now.strftime('%Y%m%d%H%M%S')
         puts "    [#{discipline}] Writing consolidated file\n      => #{target}"
@@ -177,12 +183,12 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
     base_discipline = consolidatable.key(basefile)
     consolidatable.delete(base_discipline)
     base_xml = Nokogiri::XML.parse(File.read basefile)
-    target = File.join File.dirname(basefile), File.basename(basefile).sub(base_discipline, 'GL')
+    target = File.join opts[:target], File.basename(basefile).sub(base_discipline, 'GL')
     target[-41, 5] = 'SYNTH'
     consolidatable.keys.each do |discipline|
       timestamp = timestamp_from_path(consolidatable[discipline])
       puts "  Consolidating [#{discipline}] (#{timestamp})"
-      puts "    [#{discipline}] Parsing standings"
+      puts "    [#{discipline}] Parsing medal standings"
       xml = Nokogiri::XML.parse(File.read consolidatable[discipline])
       xml.xpath('//Discipline').each do |standings|
         base_xml.root.child << standings
