@@ -28,7 +28,6 @@ disciplines = Set.new
 found_medal_standings = false
 found_files = Hash.new { |h, k| h[k]= [] }
 updatable = {}
-daily_medallist_files = {}
 consolidatable = {}
 event_timestamps = {}
 
@@ -114,7 +113,6 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
             wanted_files.delete(discipline) if wanted_files[discipline].empty?
             updatable[discipline] = target if type == 'DT_PARTIC'
             consolidatable[discipline] = target if type == 'DT_MEDALLISTS_DISCIPLINE'
-            daily_medallist_files[timestamp] = target if type == 'DT_MEDALLISTS_DAY'
           end
         end
       end
