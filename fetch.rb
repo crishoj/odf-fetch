@@ -6,7 +6,7 @@ require 'date'
 require 'set'
 require 'pry'
 
-opts = Trollop::options do
+$opts = Trollop::options do
   opt :test,       "Fetch from test server"
   opt :target,     "Directory to store XML files in",  :type => :string, :default => 'C:/XML'
   opt :username,   "Username for the ODF SFTP server", :type => :string, :default => 'ODF.VW'
@@ -17,7 +17,7 @@ opts = Trollop::options do
   opt :skip_update, "Skip updating DT_PARTIC files"
 end
 
-opts[:hostname] = 'e2e-ftpbif.sochi2014.com' if opts[:test]
+$opts[:hostname] = 'e2e-ftpbif.sochi2014.com' if $opts[:test]
 
 wanted_types = %w{
 DT_PARTIC
@@ -32,8 +32,8 @@ updatable = {}
 consolidatable = {}
 event_timestamps = {}
 
-puts "Will save the latest #{wanted_types * ', '} for all disciplines to #{opts.target}"
-puts "Connecting to sftp://#{opts[:username]}@#{opts[:hostname]}/ ..."
+puts "Will save the latest #{wanted_types * ', '} for all disciplines to #{$opts.target}"
+puts "Connecting to sftp://#{$opts[:username]}@#{$opts[:hostname]}/ ..."
 
 def timestamp_from_path(path)
   matches = /(\d{14})\d{6}\.xml$/.match(path)
@@ -62,12 +62,10 @@ def sorted_entries(sftp_entries)
 end
 
 def fetch(sftp, dir, entry, target = nil, message = nil)
-  cache_path = File.join(File.dirname(target), 'cache')
+  cache_path = File.join($opts[:target], 'cache')
   FileUtils.mkdir_p cache_path
-  cached_file = File.join(cache_path, entry)
-  if File.exist? cached_file
-    and File.size?(cached_file) == entry.attributes.size
-    and File.ctime(cached_file) > Time.at(entry.attributes.mtime)
+  cached_file = File.join(cache_path, File.basename(entry.name))
+  if (File.exist? cached_file) and (File.size?(cached_file) == entry.attributes.size) and (File.ctime(cached_file) > Time.at(entry.attributes.mtime))
     puts "#{message} [cached]" if message
   else
     puts "#{message} [#{entry.attributes.size/1024}K download]" if message
@@ -77,18 +75,18 @@ def fetch(sftp, dir, entry, target = nil, message = nil)
   cached_file
 end
 
-Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do |sftp|
+Net::SFTP.start($opts[:hostname], $opts[:username], password: $opts[:password]) do |sftp|
   pattern = '*/*_DT_*.xml'
-  date_folders = sftp.dir.entries(opts[:path]).map(&:name).
+  date_folders = sftp.dir.entries($opts[:path]).map(&:name).
       select { |entry| entry =~ /^\d{4}-\d{2}-\d{2}$/ }.
-      collect { |date| "#{opts[:path]}/#{date}" }
+      collect { |date| "#{$opts[:path]}/#{date}" }
   date_folders.sort.reverse.each do |date_dir|
     puts "  Checking #{date_dir} for #{pattern}..."
     begin
       sorted_entries(sftp.dir.glob date_dir, pattern).reverse.each do |entry|
         matches = /^\d{8}([A-Z]{2})/.match(File.basename(entry.name))
         discipline = matches[1]
-        next if opts[:discipline] and discipline != opts[:discipline]
+        next if $opts[:discipline] and discipline != $opts[:discipline]
         if not disciplines.include? discipline
           disciplines << discipline
           wanted_files[discipline] = wanted_types.clone
@@ -102,7 +100,7 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
           end
         elsif entry.name.match('__DT_MEDALS__')
           unless found_medal_standings
-            target = File.join(opts.target, 'DT_MEDALS.xml')
+            target = File.join($opts.target, 'DT_MEDALS.xml')
             fetch sftp, date_dir, entry, target, "    Found DT_MEDALS (#{timestamp})"
             found_medal_standings = true
           end
@@ -124,11 +122,11 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
     end
   end
 
-  unless opts[:skip_update]
+  unless $opts[:skip_update]
     if updatable.empty?
       puts "No DT_PARTIC files to update"
     else
-      Dir.glob(File.join(opts[:target], '*__DT_PARTIC__*.xml')).each do |f|
+      Dir.glob(File.join($opts[:target], '*__DT_PARTIC__*.xml')).each do |f|
         puts "Removing old consolidated file: #{f}"
         File.unlink f
       end
@@ -166,7 +164,7 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
             puts "    [#{discipline}] Update #{update_timestamp}: #{stats[:added]} new participants, #{stats[:updated]} updated, #{stats[:blank]} skipped"
           end
         end
-        target = File.join(opts[:target], File.basename(basefile))
+        target = File.join($opts[:target], File.basename(basefile))
         target[-41, 5] = 'SYNTH'
         target[-24, 14] = Time.now.strftime('%Y%m%d%H%M%S')
         puts "    [#{discipline}] Writing consolidated file\n      => #{target}"
@@ -183,7 +181,7 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
     base_discipline = consolidatable.key(basefile)
     consolidatable.delete(base_discipline)
     base_xml = Nokogiri::XML.parse(File.read basefile)
-    target = File.join opts[:target], File.basename(basefile).sub(base_discipline, 'GL')
+    target = File.join $opts[:target], File.basename(basefile).sub(base_discipline, 'GL')
     target[-41, 5] = 'SYNTH'
     consolidatable.keys.each do |discipline|
       timestamp = timestamp_from_path(consolidatable[discipline])
@@ -213,7 +211,7 @@ Net::SFTP.start(opts[:hostname], opts[:username], password: opts[:password]) do 
       discipline << gender
       latest_xml.root.child << discipline
     end
-    target = File.join(opts[:target], 'LATEST3.xml')
+    target = File.join($opts[:target], 'LATEST3.xml')
     puts "  Writing latest gold medallists\n    => #{target}"
     File.write(target, latest_xml.to_s)
   end
